@@ -7,17 +7,21 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 type Message struct {
-	Sender  string
-	Message string
-	Date    string
+	Sender      string
+	Description string
+	Date        string
 }
 
 type Chat struct {
-	chat []string
+	messages []Message
 }
+
+var username string
+var api Api
 
 var cleaners map[string]func() = map[string]func(){
 	"linux": func() {
@@ -36,34 +40,68 @@ func (chat *Chat) Join() {
 	chat.clear()
 	fmt.Println("Please enter your name:")
 	fmt.Print(">")
-	username, _ := chat.readTypedText()
+	username, _ = chat.readTypedText()
+	api.JoinAs(username)
 }
 
 func (chat *Chat) Start() {
-	for {
-		chat.update()
-		chat.waitForNewMessage()
-	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		for {
+			chat.update()
+		}
+	}()
+	go func() {
+		for {
+			chat.waitForNewMessage()
+		}
+	}()
+	wg.Wait()
 }
 
 func (chat *Chat) waitForNewMessage() {
-	fmt.Print("\n>")
 	message, _ := chat.readTypedText()
 	chat.sendMessage(message)
 }
 
 func (chat *Chat) sendMessage(message string) {
-
+	api.SendMessage(username, message)
 }
 
 func (chat *Chat) update() {
+	shouldUpdate := chat.loadMessages()
+	if !shouldUpdate {
+		return
+	}
 	chat.clear()
 	chat.renderMessages()
+	fmt.Print("\n>")
+}
+
+func (chat *Chat) loadMessages() (shouldUpdate bool) {
+	messages, err := api.GetMessages()
+	if err != nil {
+		return false
+	}
+	if len(messages) == len(chat.messages) {
+		return false
+	}
+	chat.messages = messages
+	return true
 }
 
 func (chat *Chat) renderMessages() {
-	for _, element := range chat.chat {
-		fmt.Println(element)
+	for _, message := range chat.messages {
+		if message.Sender == "" {
+			fmt.Println(message.Date + " " + message.Description)
+		} else {
+			sender := message.Sender
+			if message.Sender == username {
+				sender = "You"
+			}
+			fmt.Println(message.Date + " " + sender + ": " + message.Description)
+		}
 	}
 }
 
